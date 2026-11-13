@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dex Collection Exporter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sleeve:#E7ECF4;      /* page: the pale blue-grey of a card sleeve */
+    --paper:#FFFFFF;
+    --ink:#1A2142;         /* deep indigo text */
+    --ink-soft:#5A6385;
+    --line:#D3DAE7;
+    --frame:#F3C623;       /* trading-card border yellow */
+    --frame-deep:#C99A0B;
+    --action:#2F5BFF;
+    --action-ink:#FFFFFF;
+    --well:#F2F5FA;
+    --bad:#C2352B;
+    --gap:clamp(14px,1.8vw,26px);
+    --edge:clamp(14px,3vw,44px);
+    --display:"Bricolage Grotesque", "Arial Rounded MT Bold", system-ui, sans-serif;
+    --body:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --sleeve:#141A2E; --paper:#1C2440; --ink:#E9ECF7; --ink-soft:#A3ABC8; --line:#2E3860;
+      --well:#232C4D; --action:#6F8CFF; --action-ink:#0E1430;
+    }
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; font:16px/1.5 var(--body); color:var(--ink); background:var(--sleeve);
+    background-image:radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 0);
+    background-size:22px 22px; min-height:100vh;
+  }
+  :focus-visible{outline:3px solid var(--action);outline-offset:2px;border-radius:6px}
+  [hidden]{display:none!important}
+
+  input[type=text],input[type=search],select{
+    font:inherit;color:var(--ink);background:var(--paper);border:2px solid var(--line);border-radius:12px;padding:10px 13px;min-width:0
+  }
+  input:focus,select:focus{border-color:var(--action);outline:none}
+  button{font:700 15px/1 var(--body);border:0;border-radius:12px;padding:12px 16px;cursor:pointer;background:var(--well);color:var(--ink)}
+  button.go{background:var(--action);color:var(--action-ink);box-shadow:0 3px 0 color-mix(in srgb, var(--action) 55%, #000)}
+  button.go:active{transform:translateY(2px);box-shadow:0 1px 0 color-mix(in srgb, var(--action) 55%, #000)}
+  button:disabled{opacity:.55;cursor:default;transform:none}
+
+  /* ---------- top band: title, lookup, card ---------- */
+  .band{
+    display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) auto; gap:var(--gap) calc(var(--gap)*2);
+    align-items:center; padding:clamp(20px,3vw,40px) var(--edge) clamp(18px,2.4vw,30px);
+  }
+  .band h1{font-family:var(--display);font-weight:800;font-size:clamp(36px,4.6vw,66px);line-height:.95;letter-spacing:-.03em;margin:0 0 12px}
+  .band .lede{font-size:17px;color:var(--ink-soft);max-width:40ch;margin:0}
+  .lookup-wrap{align-self:center}
+  .lookup-wrap h2{font-family:var(--display);font-weight:700;font-size:20px;margin:0 0 10px;display:flex;gap:10px;align-items:center}
+  .lookup{display:flex;gap:8px;flex-wrap:wrap}
+  .lookup input{flex:1 1 220px}
+  .hint{font-size:14px;color:var(--ink-soft);margin-top:9px;max-width:56ch}
+  .hint.err{color:var(--bad);font-weight:700}
+
+  .num{
+    flex:none;width:32px;height:32px;border-radius:50%;display:inline-grid;place-items:center;
+    font-family:var(--display);font-weight:800;font-size:16px;background:var(--frame);color:#1A2142;
+  }
+
+  /* ---------- the card ---------- */
+  .stage{perspective:900px}
+  .card{
+    --rx:0deg; --ry:0deg; --mx:50%; --my:50%;
+    width:clamp(190px,15vw,232px); aspect-ratio:63/88; border-radius:13px; padding:9px;
+    background:linear-gradient(160deg,var(--frame),var(--frame-deep));
+    box-shadow:0 22px 40px -18px rgba(26,33,66,.55), 0 2px 0 rgba(255,255,255,.4) inset;
+    transform:rotateX(var(--rx)) rotateY(var(--ry)); transition:transform .25s ease; color:#1A2142;
+  }
+  .card.live{transition:none}
+  .face{height:100%;border-radius:7px;overflow:hidden;background:#F7F3E6;display:grid;grid-template-rows:auto 1fr auto auto;padding:8px 10px 9px;gap:6px}
+  .face .top{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+  .face .nm{font-family:var(--display);font-weight:800;font-size:17px;line-height:1.05;overflow-wrap:anywhere}
+  .face .hp{font-family:var(--display);font-weight:700;font-size:11px;white-space:nowrap}
+  .face .hp b{font-size:16px}
+  .art{
+    border-radius:3px;border:3px solid #CDB46A;position:relative;overflow:hidden;display:grid;place-items:center;
+    background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.7), transparent 40%),
+      conic-gradient(from 200deg at 60% 60%, #8FD3FF, #C8A2FF, #FFB3D9, #FFE48A, #A6F0C6, #8FD3FF);
+  }
+  .art .handle{position:relative;font-family:var(--display);font-weight:800;font-size:16px;color:#1A2142;background:rgba(255,255,255,.72);padding:4px 10px;border-radius:999px;max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .moves{display:grid;gap:4px;font-size:11px}
+  .move{display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid #DCD3B5;padding-bottom:3px}
+  .move span{color:#5B5640}
+  .move b{font-family:var(--display);font-size:12.5px}
+  .foot{font-size:9px;color:#7A7458;display:flex;justify-content:space-between}
+  .blank .nm,.blank .move b{color:transparent;background:#E6DFC7;border-radius:4px}
+  .blank .art .handle{color:#8B87A3}
+  .foil{
+    position:absolute;inset:0;pointer-events:none;mix-blend-mode:color-dodge;opacity:.6;
+    background:radial-gradient(circle at var(--mx) var(--my), rgba(255,255,255,.75), transparent 38%),
+      repeating-linear-gradient(115deg,#ff7ac6 0 6%,#ffd86b 12%,#7cf7c8 18%,#7ab8ff 24%,#c79bff 30%,#ff7ac6 36%);
+    background-size:100% 100%,260% 260%; background-position:center, var(--mx) var(--my);
+  }
+  .card.printed{animation:print .9s cubic-bezier(.2,.9,.2,1)}
+  @keyframes print{0%{transform:rotateY(180deg) scale(.92)}100%{transform:rotateY(0) scale(1)}}
+
+  /* ---------- workspace: filters sidebar + results ---------- */
+  .work{display:grid;grid-template-columns:minmax(330px,410px) minmax(0,1fr);gap:var(--gap);padding:0 var(--edge) var(--edge);align-items:start}
+  .panel{background:var(--paper);border:2px solid var(--line);border-radius:18px}
+  .side{position:sticky;top:14px;max-height:calc(100vh - 28px);display:flex;flex-direction:column;overflow:hidden}
+  .side-scroll{overflow:auto;padding:18px 18px 8px;flex:1}
+  .side-foot{padding:12px 18px 14px;border-top:2px solid var(--line);background:var(--paper)}
+  .head{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+  .head h2{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:-.02em;margin:0;line-height:1.1}
+  .head p{margin:2px 0 0;color:var(--ink-soft);font-size:14px}
+
+  .fgroup{padding:12px 0;border-top:1px solid var(--line)}
+  .fgroup:first-of-type{border-top:0;padding-top:0}
+  .fgroup>h3{font-family:var(--display);font-weight:700;font-size:15px;margin:0 0 8px;display:flex;align-items:baseline;gap:8px}
+  .fgroup>h3 .count{font-family:var(--body);font-weight:400;color:var(--ink-soft);font-size:13px}
+  .fgroup .note{font-size:13px;color:var(--ink-soft);margin:8px 0 0}
+  .field{display:grid;gap:6px}
+  .field input,.field select{width:100%}
+  .sortrow{display:flex;gap:8px}
+  .sortrow select{width:auto}
+  .sortrow select:first-child{flex:1;min-width:0}
+  .switch{display:flex;gap:10px;align-items:center;cursor:pointer;font-size:15px;margin-top:10px}
+  .switch input{width:19px;height:19px;accent-color:var(--action)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;background:var(--well);border:2px solid transparent;border-radius:999px;
+    padding:6px 11px;font-size:13.5px;cursor:pointer;user-select:none;color:var(--ink);font-weight:700;line-height:1.1
+  }
+  .chip .dot{width:11px;height:11px;border-radius:50%;background:var(--c,var(--ink-soft));box-shadow:0 0 0 2px rgba(255,255,255,.6) inset;flex:none}
+  .chip[aria-pressed=true]{background:var(--c,var(--action));color:var(--on,var(--action-ink));border-color:color-mix(in srgb,var(--c,var(--action)) 70%,#000)}
+  .chip[aria-pressed=true] .dot{background:var(--on,#fff)}
+  /* card state: single choice, grouped by owned / missing */
+  .states{display:grid;gap:10px}
+  .states .row-label{font-size:12.5px;color:var(--ink-soft);margin:0 0 5px}
+  .chip.state[aria-pressed=true]{--c:var(--ink);--on:var(--paper)}
+  .chip.state .glyph{width:13px;height:13px;border-radius:50%;border:2px solid currentColor;flex:none}
+  .chip.state .glyph.fill{background:currentColor}
+  .chip.state .glyph.dash{border-style:dashed}
+
+  .lbsearch{width:100%;margin-bottom:6px}
+  .listbox{max-height:190px;overflow:auto;border:2px solid var(--line);border-radius:12px;padding:5px;background:var(--well)}
+  .listbox label{display:flex;gap:9px;align-items:center;padding:4px 6px;font-size:14px;cursor:pointer;border-radius:8px}
+  .listbox label:hover{background:var(--paper)}
+  .listbox input{accent-color:var(--action);width:16px;height:16px;flex:none}
+
+  .side-foot .btns{display:flex;gap:8px}
+  .side-foot .btns .go{flex:1}
+  .bar{height:8px;background:var(--well);border-radius:8px;overflow:hidden;margin-top:10px;display:none}
+  .bar>div{height:100%;width:0;background:repeating-linear-gradient(90deg,var(--frame) 0 14px,var(--frame-deep) 14px 28px);transition:width .25s}
+  .status{margin-top:8px;font-size:14px;color:var(--ink-soft);min-height:1.3em}
+  .status.err{color:var(--bad);font-weight:700}
+
+  /* results */
+  .main{min-width:0;padding:18px 20px 20px;min-height:calc(100vh - 28px);display:flex;flex-direction:column}
+  .main-top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+  .tally{display:flex;flex-wrap:wrap;gap:8px 30px}
+  .tally div{display:flex;flex-direction:column}
+  .tally b{font-family:var(--display);font-weight:800;font-size:clamp(22px,2vw,30px);line-height:1.05;font-variant-numeric:tabular-nums}
+  .tally span{font-size:13px;color:var(--ink-soft)}
+  .exports{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .exports .label{font-size:13.5px;color:var(--ink-soft);margin-right:2px}
+  .copymsg{font-size:13.5px;color:var(--ink-soft);flex-basis:100%;text-align:right;min-height:1.2em}
+  .tablewrap{overflow:auto;flex:1;min-height:320px;max-height:calc(100vh - 210px);border:2px solid var(--line);border-radius:14px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{padding:8px 11px;text-align:left;white-space:nowrap}
+  th{position:sticky;top:0;background:var(--paper);font-family:var(--display);font-weight:700;font-size:14px;border-bottom:2px solid var(--line);z-index:1}
+  tbody tr:nth-child(even){background:var(--well)}
+  tbody tr.missing td{color:var(--ink-soft)}
+  td.amt{text-align:right;font-variant-numeric:tabular-nums}
+  .more{margin-top:8px;font-size:13px;color:var(--ink-soft)}
+  .empty{flex:1;display:grid;place-items:center;text-align:center;border:2px dashed var(--line);border-radius:14px;padding:40px 20px;color:var(--ink-soft)}
+  .empty b{display:block;font-family:var(--display);font-size:22px;color:var(--ink);margin-bottom:6px}
+
+  footer{color:var(--ink-soft);font-size:13px;padding:0 var(--edge) 30px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px 30px}
+  footer p{margin:0}
+  details summary{cursor:pointer;font-weight:700}
+  code{font-size:.92em;background:var(--well);padding:1px 5px;border-radius:5px}
+
+  @media (max-width:1100px){
+    .band{grid-template-columns:minmax(0,1fr) auto}
+    .band .intro{grid-column:1/-1}
+  }
+  @media (max-width:900px){
+    .work{grid-template-columns:minmax(0,1fr)}
+    .side{position:static;max-height:none}
+    .main{min-height:0}
+    .tablewrap{max-height:70vh}
+  }
+  @media (max-width:620px){
+    .band{grid-template-columns:minmax(0,1fr)}
+    .stage{justify-self:center}
+    .card{width:min(230px,66vw)}
+    .copymsg{text-align:left}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .card,.card.printed{transition:none;animation:none}
+    .bar>div{transition:none}
+  }
+</style>
+</head>
+<body>
+  <section class="band">
+    <div class="intro">
+      <h1>Get your Dex collection out</h1>
+      <p class="lede">Export any public Dex collection to Excel, CSV or PDF. No iPhone needed: it works on Android, Windows and Mac.</p>
+    </div>
+    <div class="lookup-wrap">
+      <h2><span class="num" aria-hidden="true">1</span>Find the profile</h2>
+      <div class="lookup">
+        <input id="user" type="text" placeholder="dextcg.com/users/yourname" autocomplete="off" spellcheck="false" aria-label="Dex profile link or username">
+        <button id="lookup" class="go">Find profile</button>
+      </div>
+      <div id="status" class="hint">Paste a Dex profile link or just the username. The profile has to be set to public in Dex.</div>
+    </div>
+    <div class="stage">
+      <div class="card" id="card">
+        <div class="face blank" id="face">
+          <div class="top"><div class="nm">Your name</div><div class="hp"><b>—</b> cards</div></div>
+          <div class="art"><div class="foil" aria-hidden="true"></div><div class="handle">@yourname</div></div>
+          <div class="moves">
+            <div class="move"><span>Collection value</span><b>$000.00</b></div>
+            <div class="move"><span>Pokémon registered</span><b>000</b></div>
+            <div class="move"><span>Collecting since</span><b>0000</b></div>
+          </div>
+          <div class="foot"><span>Dex Collection Exporter</span><span>001/001</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="work" id="work" hidden>
+    <aside class="panel side" aria-label="Filters">
+      <div class="side-scroll">
+        <div class="head"><span class="num" aria-hidden="true">2</span><div><h2>Choose what to export</h2><p>Leave filters blank for everything.</p></div></div>
+
+        <div class="fgroup">
+          <h3>Card state</h3>
+          <div class="states" id="f-state"></div>
+          <p class="note" id="stateNote" hidden>Missing cards come from the sets you pick below. With no sets picked, it checks every set this profile has cards from.</p>
+        </div>
+
+        <div class="fgroup">
+          <div class="field"><h3 style="margin:0"><label for="q">Search</label></h3><input id="q" type="search" placeholder="Card name"></div>
+        </div>
+        <div class="fgroup">
+          <div class="field">
+            <h3 style="margin:0"><label for="sort">Sort by</label></h3>
+            <div class="sortrow">
+              <select id="sort">
+                <option value="">Acquisition date</option>
+                <option value="name">Name</option>
+                <option value="artist">Illustrator</option>
+                <option value="price">Price</option>
+                <option value="nationalDexNumber">National number</option>
+                <option value="energyType">Energy type</option>
+              </select>
+              <select id="order" aria-label="Sort order">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </div>
+          </div>
+          <label class="switch"><input id="stack" type="checkbox"> One row per card (stack variants)</label>
+        </div>
+
+        <div class="fgroup">
+          <h3>Set<span class="count" id="c-set"></span></h3>
+          <input type="search" placeholder="Search sets by name, code or series" data-for="f-set" class="lbfilter lbsearch" aria-label="Search sets">
+          <div id="f-set" class="listbox"></div>
+        </div>
+        <div class="fgroup"><h3>Card type</h3><div id="f-supertype" class="chips"></div></div>
+        <div class="fgroup"><h3>Energy type</h3><div id="f-energyType" class="chips"></div></div>
+        <div class="fgroup"><h3>Trainer subtype</h3><div id="f-trainerType" class="chips"></div></div>
+        <div class="fgroup">
+          <h3>Rarity<span class="count" id="c-rarity"></span></h3>
+          <input type="search" placeholder="Search rarities" data-for="f-rarity" class="lbfilter lbsearch" aria-label="Search rarities">
+          <div id="f-rarity" class="listbox"></div>
+        </div>
+        <div class="fgroup">
+          <h3>Variant<span class="count" id="c-variant"></span></h3>
+          <input type="search" placeholder="Search variants, e.g. reverse" data-for="f-variant" class="lbfilter lbsearch" aria-label="Search variants">
+          <div id="f-variant" class="listbox"></div>
+        </div>
+        <div class="fgroup"><h3>Regulation mark</h3><div id="f-regulationMark" class="chips"></div></div>
+      </div>
+      <div class="side-foot">
+        <div class="btns">
+          <button id="load" class="go">Load collection</button>
+          <button id="clear">Clear filters</button>
+        </div>
+        <div class="bar" id="bar"><div></div></div>
+        <div id="loadStatus" class="status" role="status"></div>
+      </div>
+    </aside>
+
+    <section class="panel main" aria-label="Results">
+      <div class="head"><span class="num" aria-hidden="true">3</span><div><h2 id="resultTitle">Export</h2><p id="resultSub">Load the collection to see it here.</p></div></div>
+      <div id="emptyState" class="empty"><div><b>Nothing loaded yet</b>Pick a card state and any filters on the left, then select Load collection.</div></div>
+      <div id="results" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+        <div class="main-top">
+          <div class="tally" id="stats"></div>
+          <div class="exports">
+            <span class="label">Export as</span>
+            <button id="xlsx" class="go">Excel</button>
+            <button id="pdf">PDF</button>
+            <button id="csv">CSV</button>
+            <button id="json">JSON</button>
+            <button id="copy">Copy</button>
+            <span id="copyMsg" class="copymsg" role="status"></span>
+          </div>
+        </div>
+        <div class="tablewrap"><table id="table"></table></div>
+        <div id="more" class="more"></div>
+      </div>
+    </section>
+  </section>
+
+  <footer>
+    <p>Not affiliated with Dex. This page runs in your browser and only reads the collection data Dex already shows on public profiles. Excel and PDF exports load a small library from cdnjs the first time you use them.</p>
+    <p>Prices are what Dex reports from each market. TCGplayer and eBay are usually USD and Cardmarket is EUR. Avg Price is the average of the markets that have one, so totals won't match the Dex app exactly.</p>
+    <details><summary>Troubleshooting</summary>
+      <p>"Profile not found": check the username, and that the profile is set to public in Dex.<br>
+      "Request failed": Dex may have updated its app. Try again later, or update <code>DEX_VERSION</code> near the top of this page's script.</p>
+    </details>
+  </footer>
+
+<script>
+const API = 'https://clients.dextcg.com/api/';
+const DEX_VERSION = '1.22.0';
+const HEADERS = {accept:'application/json','content-type':'application/json','x-dex-client':'Web','x-dex-version':DEX_VERSION};
+const PAGE_SIZE = 100;
+const LIBS = {
+  xlsx: ['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'],
+  pdf: ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js']
+};
+const $ = id => document.getElementById(id);
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Card states, matching Dex's set filter. `fromSets` states need every card in the sets, not just owned ones.
+const STATES = [
+  {id:'owned', label:'Owned', glyph:'fill', group:'own'},
+  {id:'duplicate-cards-owned', label:'Duplicate cards owned', glyph:'fill', group:'own'},
+  {id:'duplicate-variants-owned', label:'Duplicate variants owned', glyph:'fill', group:'own'},
+  {id:'master-variants-owned', label:'Master variants owned', glyph:'fill', group:'own'},
+  {id:'additional-variants-owned', label:'Additional variants owned', glyph:'fill', group:'own'},
+  {id:'grandmaster-variants-owned', label:'Grandmaster variants owned', glyph:'fill', group:'own'},
+  {id:'all', label:'All', glyph:'', group:'set', fromSets:true},
+  {id:'not-owned', label:'Not owned', glyph:'dash', group:'set', fromSets:true},
+  {id:'all-master-variants', label:'Master variants', glyph:'', group:'set', fromSets:true},
+  {id:'master-variants-not-owned', label:'Master variants not owned', glyph:'dash', group:'set', fromSets:true},
+  {id:'all-additional-variants', label:'Additional variants', glyph:'', group:'set', fromSets:true},
+  {id:'additional-variants-not-owned', label:'Additional variants not owned', glyph:'dash', group:'set', fromSets:true},
+  {id:'grandmaster-variants-not-owned', label:'Grandmaster variants not owned', glyph:'dash', group:'set', fromSets:true},
+];
+const stateById = id => STATES.find(s=>s.id===id);
+
+const state = {
+  user:null, meta:null, entries:[], rows:[], cardState:'owned', loadedState:'owned',
+  sel:{supertype:new Set(),energyType:new Set(),trainerType:new Set(),regulationMark:new Set(),rarity:new Set(),variant:new Set(),set:new Set()}
+};
+
+async function api(path, tries=3){
+  for(let i=0;i<tries;i++){
+    try{
+      const r = await fetch(API+path,{headers:HEADERS});
+      if(r.status===404) throw Object.assign(new Error('not_found'),{status:404});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    }catch(e){
+      if(e.status===404 || i===tries-1) throw e;
+      await new Promise(res=>setTimeout(res,800*(i+1)));
+    }
+  }
+}
+const list = j => Array.isArray(j) ? j : (j.result || []);
+async function allPages(pathFn, onPage){
+  const out=[]; let page=1, total=1;
+  do{
+    const j = await api(pathFn(page));
+    out.push(...list(j)); total = j.totalPages||1;
+    onPage && onPage(page,total,j.totalItems);
+    page++;
+    if(page<=total) await new Promise(r=>setTimeout(r,120));
+  }while(page<=total);
+  return out;
+}
+
+function parseUser(v){
+  v = v.trim();
+  const m = v.match(/users\/([^/?#\s]+)/i);
+  if(m) return decodeURIComponent(m[1]);
+  return v.replace(/^@/,'').split(/[/?#\s]/)[0];
+}
+function setStatus(el,msg,err){ el.textContent = msg; el.classList.toggle('err',!!err); }
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => '$'+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+// ---------- the profile card ----------
+function printCard(p, s){
+  const n = v => v==null ? '—' : Number(v).toLocaleString();
+  const face = $('face');
+  face.classList.remove('blank');
+  face.innerHTML = `
+    <div class="top"><div class="nm">${esc(p.name||p.username)}</div><div class="hp"><b>${n(s.numberOfCards)}</b> cards</div></div>
+    <div class="art"><div class="foil" aria-hidden="true"></div><div class="handle">@${esc(p.username)}</div></div>
+    <div class="moves">
+      <div class="move"><span>Collection value</span><b>${s.collectionValue!=null?money(s.collectionValue):'—'}</b></div>
+      <div class="move"><span>Pokémon registered</span><b>${s.numberOfPokemons!=null?n(s.numberOfPokemons)+(s.totalNumberOfPokemons?' / '+n(s.totalNumberOfPokemons):''):'—'}</b></div>
+      <div class="move"><span>Collecting since</span><b>${esc((p.joinedAt||'').slice(0,4)||'—')}</b></div>
+    </div>
+    <div class="foot"><span>${esc(p.country||'Dex collector')}</span><span>Collector card</span></div>`;
+  const card = $('card');
+  card.classList.remove('printed'); void card.offsetWidth; card.classList.add('printed');
+}
+(function tilt(){
+  const card = $('card');
+  if(reduceMotion()) return;
+  card.addEventListener('pointermove', e=>{
+    const r = card.getBoundingClientRect();
+    const x = (e.clientX-r.left)/r.width, y = (e.clientY-r.top)/r.height;
+    card.classList.add('live');
+    card.style.setProperty('--ry', ((x-.5)*18)+'deg');
+    card.style.setProperty('--rx', ((.5-y)*18)+'deg');
+    card.style.setProperty('--mx', (x*100)+'%');
+    card.style.setProperty('--my', (y*100)+'%');
+  });
+  card.addEventListener('pointerleave', ()=>{
+    card.classList.remove('live');
+    for(const [k,v] of [['--rx','0deg'],['--ry','0deg'],['--mx','50%'],['--my','50%']]) card.style.setProperty(k,v);
+  });
+})();
+
+// ---------- profile lookup ----------
+$('lookup').onclick = lookup;
+$('user').addEventListener('keydown',e=>{ if(e.key==='Enter') lookup(); });
+try{ const last = localStorage.getItem('dexExporterUser'); if(last) $('user').value = last; }catch(e){}
+
+async function lookup(){
+  const name = parseUser($('user').value);
+  const st = $('status');
+  if(!name){ setStatus(st,'Enter a Dex profile link or username.',true); return; }
+  $('lookup').disabled = true; setStatus(st,'Looking up '+name+'…');
+  try{
+    const p = await api('users/'+encodeURIComponent(name)+'/profile');
+    if(p.publicProfile===false){ setStatus(st,'That profile is private. Make it public in the Dex app, then try again.',true); return; }
+    state.user = p;
+    try{ localStorage.setItem('dexExporterUser', name); }catch(e){}
+    let s = {};
+    try{ s = await api('users/'+p.id+'/stats'); }catch(e){}
+    printCard(p, s);
+    if(!state.meta) await loadMeta();
+    await loadSets(p.id);
+    setStatus(st,'Found @'+p.username+'. Choose what to export below.');
+    $('work').hidden = false;
+    resetResults();
+    $('work').scrollIntoView({behavior: reduceMotion() ? 'auto' : 'smooth', block:'start'});
+  }catch(e){
+    setStatus(st, e.status===404 ? 'Profile not found. Check the username, and that the profile is public.' : 'Request failed ('+e.message+'). Check your connection and try again.', true);
+  }finally{ $('lookup').disabled = false; }
+}
+
+// ---------- filter metadata ----------
+async function loadMeta(){
+  const v = 'version=109';
+  const [st,et,tt,rm,rg] = await Promise.all([
+    api('supertypes?'+v), api('energy-types?'+v), api('trainer-types?'+v),
+    api('regulation-marks?pageSize=100&'+v), api('rarity-groups?pageSize=100&'+v)
+  ]);
+  const vgroups = await allPages(p=>`variant-groups?pageSize=100&page=${p}&${v}`);
+  const seenV = new Set();
+  state.meta = {
+    supertype: list(st).map(x=>({name:x.name,index:x.index,id:x.id})).sort((a,b)=>a.name.localeCompare(b.name)),
+    energyType: list(et).map(x=>({name:x.name,index:x.index,id:x.id})),
+    trainerType: list(tt).map(x=>({name:x.name,index:x.index,id:x.id})),
+    regulationMark: list(rm).map(x=>({name:x.name,index:x.index,id:x.id})),
+    rarity: list(rg).flatMap(g=>g.rarities||[]).map(x=>({name:x.name,index:x.index,id:x.id})),
+    variant: vgroups.flatMap(g=>g.variants||[]).filter(x=>!seenV.has(x.index)&&seenV.add(x.index))
+      .map(x=>({name:x.name,index:x.index,id:x.id,key:x.variantId})).sort((a,b)=>a.name.localeCompare(b.name)),
+    set: []
+  };
+  renderStates();
+  for(const k of ['supertype','energyType','trainerType','regulationMark']) renderChips(k);
+  for(const k of ['rarity','variant']) renderList(k);
+}
+
+// Sets are per user: only the sets this person owns cards from, newest first.
+async function loadSets(userId){
+  const sets = await allPages(p=>`users/${userId}/sets?pageSize=100&page=${p}`);
+  state.meta.set = sets.map(s=>({
+    index: s.id, code: s.setId,
+    name: `${s.name} (${[s.series?.name, s.setId].filter(Boolean).join(', ')})${s.numberOfOwnedCards!=null?` · ${s.numberOfOwnedCards}${s.numberOfCards?' of '+s.numberOfCards:''} owned`:''}`
+  }));
+  state.sel.set.clear(); $('c-set').textContent='';
+  renderList('set');
+}
+
+function renderStates(){
+  const box = $('f-state'); box.innerHTML='';
+  for(const [group,label] of [['own','From the collection'],['set','From whole sets, including missing cards']]){
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<p class="row-label">${label}</p><div class="chips"></div>`;
+    const chips = wrap.lastElementChild;
+    for(const s of STATES.filter(s=>s.group===group)){
+      const c = document.createElement('button');
+      c.type='button'; c.className='chip state'; c.dataset.state=s.id;
+      c.setAttribute('aria-pressed', String(state.cardState===s.id));
+      c.innerHTML = `<span class="glyph ${s.glyph}" aria-hidden="true"></span>${esc(s.label)}`;
+      c.onclick = ()=>{ state.cardState = s.id; syncStates(); };
+      chips.appendChild(c);
+    }
+    box.appendChild(wrap);
+  }
+  syncStates();
+}
+function syncStates(){
+  document.querySelectorAll('.chip.state').forEach(c=>c.setAttribute('aria-pressed', String(c.dataset.state===state.cardState)));
+  $('stateNote').hidden = !stateById(state.cardState).fromSets;
+}
+
+const ENERGY = {Grass:['#3FA34D','#fff'],Fire:['#E4572E','#fff'],Water:['#2B8BE6','#fff'],Lightning:['#F2C318','#1A2142'],
+  Psychic:['#9B5DE5','#fff'],Fighting:['#C06A2B','#fff'],Darkness:['#3D3B4F','#fff'],Metal:['#8A94A6','#fff'],
+  Fairy:['#E76FB1','#fff'],Dragon:['#B8932F','#fff'],Colorless:['#D9D6C8','#1A2142']};
+function renderChips(key){
+  const box = $('f-'+key); box.innerHTML='';
+  for(const o of state.meta[key]){
+    const c = document.createElement('button');
+    c.type='button'; c.className='chip'; c.setAttribute('aria-pressed','false');
+    const col = key==='energyType' && ENERGY[o.name];
+    if(col){ c.style.setProperty('--c',col[0]); c.style.setProperty('--on',col[1]); }
+    c.innerHTML = (col?'<span class="dot" aria-hidden="true"></span>':'') + esc(o.name);
+    c.onclick=()=>{ const s=state.sel[key]; s.has(o.index)?s.delete(o.index):s.add(o.index); c.setAttribute('aria-pressed', String(s.has(o.index))); };
+    box.appendChild(c);
+  }
+}
+function renderList(key){
+  const box = $('f-'+key); box.innerHTML='';
+  for(const o of state.meta[key]){
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox"> ${esc(o.name)}`;
+    l.dataset.name = o.name.toLowerCase();
+    l.querySelector('input').onchange = e=>{ const s=state.sel[key]; e.target.checked?s.add(o.index):s.delete(o.index); $('c-'+key).textContent = s.size?`${s.size} selected`:''; };
+    box.appendChild(l);
+  }
+}
+document.querySelectorAll('.lbfilter').forEach(inp=>inp.addEventListener('input',()=>{
+  const q = inp.value.trim().toLowerCase();
+  $(inp.dataset.for).querySelectorAll('label').forEach(l=>l.style.display = !q||l.dataset.name.includes(q)?'':'none');
+}));
+$('clear').onclick = ()=>{
+  for(const k in state.sel) state.sel[k].clear();
+  document.querySelectorAll('.chip:not(.state)').forEach(c=>c.setAttribute('aria-pressed','false'));
+  document.querySelectorAll('.listbox input').forEach(i=>i.checked=false);
+  for(const k of ['rarity','variant','set']) $('c-'+k).textContent='';
+  $('q').value=''; $('sort').value=''; $('order').value='desc'; $('stack').checked=false;
+  state.cardState='owned'; syncStates();
+  document.querySelectorAll('.lbfilter').forEach(i=>{i.value=''; i.dispatchEvent(new Event('input'));});
+};
+
+// ---------- loading ----------
+$('load').onclick = loadCollection;
+$('stack').onchange = ()=>{ if(state.entries.length){ buildRows(); renderResults(); } };
+
+function filterParams(page, opts={}){
+  const p = new URLSearchParams({market:'1', page:String(page), pageSize:String(opts.pageSize||PAGE_SIZE)});
+  const q = $('q').value.trim(); if(q) p.set('query',q);
+  if($('sort').value) p.set('sort',$('sort').value);
+  p.set('order',$('order').value);
+  for(const k in state.sel){
+    if(opts.noSet && k==='set') continue;
+    if(state.sel[k].size) p.set(k,[...state.sel[k]].join(','));
+  }
+  return p.toString();
+}
+
+function resetResults(){
+  state.entries=[]; state.rows=[];
+  $('results').hidden = true; $('emptyState').hidden = false;
+  $('resultTitle').textContent = 'Export'; $('resultSub').textContent = 'Load the collection to see it here.';
+}
+
+async function loadCollection(){
+  const ls = $('loadStatus'), bar = $('bar'), fill = bar.firstElementChild;
+  const cs = stateById(state.cardState);
+  $('load').disabled = true; bar.style.display='block'; fill.style.width='0';
+  setStatus(ls,'Loading…'); $('copyMsg').textContent='';
+  try{
+    // 1. What this person owns (with the filters applied by Dex).
+    const owned = await allPages(p=>`users/${state.user.id}/cards?${filterParams(p)}`, (p,t,n)=>{
+      fill.style.width = Math.round(p/t*(cs.fromSets?30:100))+'%';
+      setStatus(ls,`Loading owned cards… ${Math.min(p*PAGE_SIZE,n||0)} of ${n||0}`);
+    });
+    let entries;
+    if(!cs.fromSets){
+      entries = owned.map(x=>({card:x.card||{}, quantities:x.quantities||{}, createdAt:x.createdAt}));
+    }else{
+      // 2. Every card in the chosen sets (or every set they collect from), so missing cards can be listed.
+      const ownedById = new Map(owned.map(x=>[x.card?.cardId||x.cardId, x]));
+      const sets = state.sel.set.size ? state.meta.set.filter(s=>state.sel.set.has(s.index)) : state.meta.set;
+      const q = $('q').value.trim().toLowerCase();
+      const regIds = new Set(state.meta.regulationMark.filter(r=>state.sel.regulationMark.has(r.index)).map(r=>r.id));
+      entries = [];
+      for(let i=0;i<sets.length;i++){
+        setStatus(ls,`Checking set ${i+1} of ${sets.length}: ${sets[i].name.split(' (')[0]}…`);
+        const cards = await allPages(p=>`sets/${encodeURIComponent(sets[i].code)}/cards?${filterParams(p,{noSet:true,pageSize:250})}`);
+        for(const c of cards){
+          // Dex's set lists don't apply search or regulation mark, so do those here.
+          if(q && !String(c.name||'').toLowerCase().includes(q)) continue;
+          if(regIds.size && !regIds.has(c.regulationMarkId)) continue;
+          const o = ownedById.get(c.cardId);
+          entries.push({card:c, quantities:o?.quantities||{}, createdAt:o?.createdAt||''});
+        }
+        fill.style.width = Math.round(30+(i+1)/sets.length*70)+'%';
+      }
+    }
+    state.entries = entries; state.loadedState = cs.id;
+    buildRows(); renderResults();
+    setStatus(ls, state.rows.length ? `Done. ${state.rows.length.toLocaleString()} rows ready to export.` : 'Nothing matches those filters.');
+    if(state.rows.length && matchMedia('(max-width:900px)').matches) $('results').scrollIntoView({behavior: reduceMotion()?'auto':'smooth', block:'start'});
+  }catch(e){
+    setStatus(ls,'Request failed ('+e.message+'). Try again in a moment.',true);
+  }finally{ $('load').disabled=false; setTimeout(()=>bar.style.display='none',600); }
+}
+
+// ---------- rows ----------
+const COLS = ['Name','Set','Set Code','Series','Number','Card ID','Variant','Variant Type','Owned','Quantity','Spares','Card Type','Rarity','Energy Type','Regulation Mark','Artist','TCGplayer Price','Cardmarket Price','eBay Price','CardTrader Price','Avg Price','Total Value','Set Release Date','Date Added','Image URL'];
+const MONEY_COLS = new Set(['TCGplayer Price','Cardmarket Price','eBay Price','CardTrader Price','Avg Price','Total Value']);
+const r2 = n => n===''||n==null ? '' : Math.round(n*100)/100;
+const TYPE_NAME = {default:'Standard', master:'Master', additional:'Additional'};
+const isMaster = t => t==='default' || t==='master' || !t;
+
+function keepVariant(sid, q, type, cardTotal){
+  switch(sid){
+    case 'owned': case 'grandmaster-variants-owned': return q>0;
+    case 'duplicate-cards-owned': return q>0 && cardTotal>1;
+    case 'duplicate-variants-owned': return q>1;
+    case 'master-variants-owned': return q>0 && isMaster(type);
+    case 'additional-variants-owned': return q>0 && type==='additional';
+    case 'all': case 'grandmaster-variants-all': return true;
+    case 'all-master-variants': return isMaster(type);
+    case 'master-variants-not-owned': return q===0 && isMaster(type);
+    case 'all-additional-variants': return type==='additional';
+    case 'additional-variants-not-owned': return q===0 && type==='additional';
+    case 'grandmaster-variants-not-owned': return q===0;
+  }
+  return q>0;
+}
+
+function buildRows(){
+  const m = state.meta, sid = state.loadedState, cs = stateById(sid);
+  const byId = arr => Object.fromEntries(arr.map(x=>[x.id,x.name]));
+  const rarity = byId(m.rarity), energy = byId(m.energyType), reg = byId(m.regulationMark);
+  const wantedVariants = new Set(m.variant.filter(v=>state.sel.variant.has(v.index)).map(v=>v.key));
+  const stack = $('stack').checked;
+  const rows = [];
+  for(const x of state.entries){
+    const c = x.card;
+    const qty = x.quantities||{};
+    const cardTotal = Object.values(qty).reduce((a,b)=>a+(b||0),0);
+    const base = {
+      'Name':c.name, 'Set':c.set?.name, 'Set Code':c.set?.setId, 'Series':c.set?.series?.name, 'Number':c.number, 'Card ID':c.cardId,
+      'Card Type':c.supertype?.name||'', 'Rarity':rarity[c.rarityId]||'', 'Energy Type':energy[c.primaryEnergyTypeId]||'',
+      'Regulation Mark':reg[c.regulationMarkId]||'', 'Artist':c.artist?.name||'',
+      'Set Release Date':(c.set?.releasedAt||'').slice(0,10), 'Date Added':(x.createdAt||'').slice(0,10), 'Image URL':c.imageUrl||''
+    };
+    const priceOf = vid => {
+      const p = mk => { const f=(c.markets||[]).find(mm=>mm.market?.marketId===mk && mm.variantId===vid); return f&&f.price!=null?f.price:''; };
+      const tp=p('tcgPlayer'), cm=p('cardmarket'), eb=p('ebay'), ct=p('cardTrader');
+      const ps=[tp,cm,eb,ct].filter(v=>v!=='');
+      return {tp,cm,eb,ct,avg: ps.length ? ps.reduce((a,b)=>a+b,0)/ps.length : ''};
+    };
+
+    // "Not owned" is about whole cards: one row per card nobody has a copy of.
+    if(sid==='not-owned'){
+      if(cardTotal>0) continue;
+      const v = (c.variants||[]).find(v=>v.type==='default') || (c.variants||[])[0];
+      const pr = priceOf(v?.variantId);
+      rows.push({...base,'Variant':v?.variant?.name||'','Variant Type':TYPE_NAME[v?.type]||'','Owned':'No','Quantity':0,'Spares':0,
+        'TCGplayer Price':pr.tp,'Cardmarket Price':pr.cm,'eBay Price':pr.eb,'CardTrader Price':pr.ct,'Avg Price':r2(pr.avg),'Total Value':0});
+      continue;
+    }
+
+    // Variants to consider: everything the card comes in for set-based states, otherwise what's owned.
+    const candidates = cs.fromSets
+      ? (c.variants||[]).map(v=>({key:v.variant?.variantId, v}))
+      : Object.keys(qty).map(k=>({key:k, v:(c.variants||[]).find(v=>v.variant?.variantId===k)}));
+    const variantRows = [];
+    for(const {key,v} of candidates){
+      if(!key) continue;
+      const q = qty[key]||0;
+      if(wantedVariants.size && !wantedVariants.has(key)) continue;
+      if(!keepVariant(sid, q, v?.type, cardTotal)) continue;
+      const pr = priceOf(v?.variantId);
+      variantRows.push({...base,'Variant':v?.variant?.name||key,'Variant Type':TYPE_NAME[v?.type]||'','Owned':q>0?'Yes':'No','Quantity':q,'Spares':Math.max(q-1,0),
+        'TCGplayer Price':pr.tp,'Cardmarket Price':pr.cm,'eBay Price':pr.eb,'CardTrader Price':pr.ct,'Avg Price':r2(pr.avg),'Total Value':pr.avg===''?'':r2(pr.avg*q)});
+    }
+    if(!variantRows.length) continue;
+    if(stack){
+      const q = variantRows.reduce((s,r)=>s+r.Quantity,0);
+      rows.push({...base,'Variant':variantRows.map(r=>`${r.Variant} x${r.Quantity}`).join('; '),'Variant Type':'','Owned':q>0?'Yes':'No','Quantity':q,
+        'Spares':Math.max(cardTotal-1,0),'TCGplayer Price':'','Cardmarket Price':'','eBay Price':'','CardTrader Price':'','Avg Price':'',
+        'Total Value':r2(variantRows.reduce((s,r)=>s+(r['Total Value']||0),0))});
+    } else rows.push(...variantRows);
+  }
+  state.rows = rows;
+}
+
+function summary(){
+  const rows = state.rows;
+  const ownedRows = rows.filter(r=>r.Quantity>0), missing = rows.filter(r=>r.Quantity===0);
+  return {
+    unique: new Set(rows.map(r=>r['Card ID'])).size,
+    qty: rows.reduce((s,r)=>s+(r.Quantity||0),0),
+    spares: rows.reduce((s,r)=>s+(r.Spares||0),0),
+    value: ownedRows.reduce((s,r)=>s+(Number(r['Total Value'])||0),0),
+    missing: missing.length,
+    toComplete: missing.reduce((s,r)=>s+(Number(r['Avg Price'])||0),0),
+    rows: rows.length
+  };
+}
+
+function renderResults(){
+  const rows = state.rows, s = summary(), sid = state.loadedState;
+  const label = stateById(sid).label;
+  $('resultTitle').textContent = label;
+  $('resultSub').textContent = `@${state.user.username}` + (state.sel.set.size?` · ${state.sel.set.size} set${state.sel.set.size>1?'s':''}`:'');
+  const tiles = [[s.unique.toLocaleString(),'Unique cards']];
+  if(s.qty) tiles.push([s.qty.toLocaleString(),'Copies owned']);
+  if(/duplicate/.test(sid)) tiles.push([s.spares.toLocaleString(),'Spare copies']);
+  if(s.qty) tiles.push([money(s.value),'Owned value']);
+  if(s.missing) tiles.push([s.missing.toLocaleString(),'Missing'],[money(s.toComplete),'Cost to complete']);
+  tiles.push([s.rows.toLocaleString(),'Rows']);
+  $('stats').innerHTML = tiles.map(([b,t])=>`<div><b>${b}</b><span>${t}</span></div>`).join('');
+
+  const show = ['Name','Set','Number','Variant','Variant Type','Quantity', ...(/duplicate/.test(sid)?['Spares']:[]), 'Rarity','Avg Price','Total Value'];
+  const num = new Set(['Quantity','Spares','Avg Price','Total Value']);
+  const LIMIT = 500;
+  const fmt = (h,v) => MONEY_COLS.has(h)&&v!=='' ? Number(v).toFixed(2) : v;
+  $('table').innerHTML = `<thead><tr>${show.map(h=>`<th class="${num.has(h)?'amt':''}">${h}</th>`).join('')}</tr></thead><tbody>${
+    rows.slice(0,LIMIT).map(r=>`<tr class="${r.Quantity===0?'missing':''}">${show.map(h=>`<td class="${num.has(h)?'amt':''}">${esc(fmt(h,r[h]))}</td>`).join('')}</tr>`).join('')
+  }</tbody>`;
+  $('more').textContent = rows.length>LIMIT ? `Showing the first ${LIMIT} of ${rows.length.toLocaleString()} rows. Exports include every row and every column.` : 'Excel, CSV and JSON include every column; PDF includes the main ones.';
+  $('emptyState').hidden = rows.length>0;
+  $('results').hidden = rows.length===0;
+  if(!rows.length){ $('emptyState').innerHTML = '<div><b>Nothing matches</b>Try a different card state, or clear some filters.</div>'; }
+}
+
+// ---------- export ----------
+function fileBase(){ return `dex-${(state.user?.username||'export').toLowerCase()}-${state.loadedState}-${new Date().toISOString().slice(0,10)}`; }
+function download(name, blob){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function flash(msg){ $('copyMsg').textContent = msg; clearTimeout(flash.t); flash.t = setTimeout(()=>$('copyMsg').textContent='',5000); }
+function toCSV(){
+  const e = v => { v = v==null?'':String(v); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  return [COLS.map(e).join(','), ...state.rows.map(r=>COLS.map(c=>e(r[c])).join(','))].join('\r\n');
+}
+const loaded = {};
+function loadScripts(urls){
+  return urls.reduce((p,u)=>p.then(()=> loaded[u] || (loaded[u] = new Promise((res,rej)=>{
+    const s=document.createElement('script'); s.src=u; s.onload=res; s.onerror=()=>{ delete loaded[u]; rej(new Error('Could not load '+u.split('/').pop())); };
+    document.head.appendChild(s);
+  }))), Promise.resolve());
+}
+function filterSummary(){
+  const parts = [stateById(state.loadedState).label];
+  const names = (k)=>state.meta[k].filter(o=>state.sel[k].has(o.index)).map(o=>o.name.split(' (')[0]);
+  for(const [k,l] of [['set','Sets'],['supertype','Type'],['energyType','Energy'],['trainerType','Trainer'],['rarity','Rarity'],['variant','Variant'],['regulationMark','Reg. mark']]){
+    const n = names(k); if(n.length) parts.push(`${l}: ${n.join(', ')}`);
+  }
+  if($('q').value.trim()) parts.push(`Search: "${$('q').value.trim()}"`);
+  return parts.join('  |  ');
+}
+
+$('csv').onclick = ()=> download(fileBase()+'.csv', new Blob(['﻿'+toCSV()],{type:'text/csv;charset=utf-8'}));
+$('json').onclick = ()=> download(fileBase()+'.json', new Blob([JSON.stringify(state.rows.map(r=>Object.fromEntries(COLS.map(c=>[c,r[c]??'']))),null,2)],{type:'application/json'}));
+$('copy').onclick = async ()=>{
+  try{ await navigator.clipboard.writeText(toCSV()); flash('Copied. Paste it into Excel or Google Sheets.'); }
+  catch(e){ flash('Your browser blocked copying. Use CSV or Excel instead.'); }
+};
+
+$('xlsx').onclick = async ()=>{
+  const btn = $('xlsx'); btn.disabled = true; flash('Building the Excel file…');
+  try{
+    await loadScripts(LIBS.xlsx);
+    const s = summary();
+    const data = state.rows.map(r=>COLS.map(c=>r[c]??''));
+    const ws = XLSX.utils.aoa_to_sheet([COLS, ...data]);
+    ws['!cols'] = COLS.map(c=>({wch: Math.min(40, Math.max(c.length+2, ...state.rows.slice(0,300).map(r=>String(r[c]??'').length+1)))}));
+    ws['!autofilter'] = {ref: XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:data.length, c:COLS.length-1}})};
+    // money columns as 0.00
+    COLS.forEach((c,ci)=>{ if(!MONEY_COLS.has(c)) return;
+      for(let ri=1; ri<=data.length; ri++){ const cell = ws[XLSX.utils.encode_cell({r:ri,c:ci})]; if(cell && cell.t==='n') cell.z='0.00'; } });
+    const info = XLSX.utils.aoa_to_sheet([
+      ['Dex collection export'],[],
+      ['Profile', '@'+state.user.username],['Name', state.user.name||''],['Exported', new Date().toLocaleString()],
+      ['Filters', filterSummary()],[],
+      ['Unique cards', s.unique],['Copies owned', s.qty],['Spare copies', s.spares],['Owned value (avg price)', r2(s.value)],
+      ['Missing', s.missing],['Cost to complete (avg price)', r2(s.toComplete)],['Rows', s.rows],[],
+      ['Prices are what Dex reports from each market. TCGplayer and eBay are usually USD, Cardmarket EUR.']
+    ]);
+    info['!cols'] = [{wch:30},{wch:70}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cards');
+    XLSX.utils.book_append_sheet(wb, info, 'Summary');
+    XLSX.writeFile(wb, fileBase()+'.xlsx');
+    flash('Excel file downloaded.');
+  }catch(e){ flash(e.message+'. Check your internet connection, or use CSV.'); }
+  finally{ btn.disabled = false; }
+};
+
+$('pdf').onclick = async ()=>{
+  const btn = $('pdf'); btn.disabled = true; flash('Building the PDF…');
+  try{
+    await loadScripts(LIBS.pdf);
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+    const latin = v => String(v??'').replace(/♀/g,' (F)').replace(/♂/g,' (M)').replace(/[’‘]/g,"'").replace(/[“”]/g,'"').replace(/[–—]/g,'-').replace(/[^\x00-\xFF]/g,'');
+    const s = summary(), sid = state.loadedState, W = doc.internal.pageSize.getWidth();
+    // header band in card-frame yellow
+    doc.setFillColor(243,198,35); doc.rect(0,0,W,64,'F');
+    doc.setTextColor(26,33,66); doc.setFont('helvetica','bold'); doc.setFontSize(20);
+    doc.text(latin(`${state.user.name||state.user.username}'s Dex collection`), 36, 30);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    doc.text(latin(`@${state.user.username}   ·   exported ${new Date().toLocaleDateString()}`).replace('·','-'), 36, 48);
+    doc.setFontSize(10);
+    const lines = doc.splitTextToSize(latin(filterSummary()), W-72);
+    doc.text(lines, 36, 84);
+    let y = 84 + lines.length*12 + 6;
+    const tl = [['Unique cards', s.unique], ...(s.qty?[['Copies owned', s.qty],['Owned value', money(s.value)]]:[]), ...(/duplicate/.test(sid)?[['Spare copies', s.spares]]:[]), ...(s.missing?[['Missing', s.missing],['Cost to complete', money(s.toComplete)]]:[])];
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text(tl.map(([k,v])=>`${k}: ${v}`).join('      '), 36, y); y += 12;
+    const cols = ['Name','Set','Number','Variant','Quantity', ...(/duplicate/.test(sid)?['Spares']:[]), 'Rarity','Card Type','Avg Price','Total Value'];
+    doc.autoTable({
+      startY: y+4, head:[cols.map(c=>c==='Quantity'?'Qty':c)],
+      body: state.rows.map(r=>cols.map(c=> latin(MONEY_COLS.has(c)&&r[c]!=='' ? Number(r[c]).toFixed(2) : r[c]))),
+      styles:{font:'helvetica', fontSize:8.5, cellPadding:4, textColor:[26,33,66], lineColor:[211,218,231], lineWidth:.5},
+      headStyles:{fillColor:[26,33,66], textColor:255, fontStyle:'bold'},
+      alternateRowStyles:{fillColor:[242,245,250]},
+      columnStyles: Object.fromEntries(cols.map((c,i)=>[i, ['Quantity','Spares','Avg Price','Total Value'].includes(c)?{halign:'right'}:{}])),
+      margin:{left:36,right:36},
+      didDrawPage: d=>{ doc.setFontSize(8); doc.setTextColor(90,99,133); doc.text(`Page ${doc.internal.getNumberOfPages()}  -  Dex Collection Exporter (not affiliated with Dex)`, 36, doc.internal.pageSize.getHeight()-16); }
+    });
+    doc.save(fileBase()+'.pdf');
+    flash('PDF downloaded.');
+  }catch(e){ flash(e.message+'. Check your internet connection, or use CSV.'); }
+  finally{ btn.disabled = false; }
+};
+</script>
+</body>
+</html>
