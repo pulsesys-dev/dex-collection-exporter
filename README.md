@@ -1,6 +1,6 @@
 # Dex Collection Exporter
 
-Export your [Dex](https://dextcg.com) Pokémon TCG collection to **Excel, CSV, PDF or JSON**, from any device.
+Export your [Dex](https://dextcg.com) Pokémon TCG collection to **Excel, CSV, PDF or JSON**, from any device, or move it to **Collectr**.
 
 Dex's built-in CSV export only exists in the iOS app (and needs Dex+). If you're on Android or a PC, this page gets your collection out anyway.
 
@@ -33,9 +33,17 @@ The same filters as Dex's own collection and set pages:
 
 Duplicates show a **Spares** count, which is handy for trade lists. Missing-card exports show a **Cost to complete** based on average market prices.
 
+## Move your collection to Collectr
+
+Select **Collectr** to download a CSV in the TCGplayer format that [Collectr imports](https://getcollectr.notion.site/Import-Export-Your-Collection-9aa6e5f4d0cd4efb995dadc992760c8e): Quantity, Name, Simple Name, Set, Card Number, Set Code, Printing, Condition, Language, Rarity and TCGplayer Product ID. Email it to Collectr's import address from the account you use in their app.
+
+- Only cards you own are included, using whatever filters you've loaded.
+- Product IDs come from the TCGplayer links Dex stores for each variant. Cards TCGplayer doesn't sell (most Chinese cards, some stamped or special variants) have no product ID, so they're left out; the page tells you how many.
+- Dex doesn't record condition, so every card is marked Near Mint.
+
 ## What's in the export
 
-Name, set, set code, series, number, card ID, variant, variant type, owned, quantity, spares, card type, rarity, energy type, regulation mark, artist, TCGplayer / Cardmarket / eBay / CardTrader prices, average price, total value, set release date, date added, and image URL.
+Name, set, set code, series, number, card ID, variant, variant type, owned, quantity, spares, card type, rarity, energy type, regulation mark, artist, TCGplayer / Cardmarket / eBay / CardTrader prices, average price, total value, language, TCGplayer product ID and printing, set release date, date added, and image URL.
 
 - **Excel** includes a Cards sheet with filter buttons, and a Summary sheet with totals and the filters you used.
 - **PDF** is landscape A4 with the main columns, ready to print or share.

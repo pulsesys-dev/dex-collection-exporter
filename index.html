@@ -314,6 +314,7 @@
             <button id="csv">CSV</button>
             <button id="json">JSON</button>
             <button id="copy">Copy</button>
+            <button id="collectr" title="CSV in the TCGplayer format Collectr imports">Collectr</button>
             <span id="copyMsg" class="copymsg" role="status"></span>
           </div>
         </div>
@@ -496,7 +497,7 @@ async function loadMeta(){
 async function loadSets(userId){
   const sets = await allPages(p=>`users/${userId}/sets?pageSize=100&page=${p}`);
   state.meta.set = sets.map(s=>({
-    index: s.id, code: s.setId,
+    index: s.id, code: s.setId, playId: s.playId||'', mainSetCount: s.mainSetCount||s.numberOfCards||'',
     name: `${s.name} (${[s.series?.name, s.setId].filter(Boolean).join(', ')})${s.numberOfOwnedCards!=null?` · ${s.numberOfOwnedCards}${s.numberOfCards?' of '+s.numberOfCards:''} owned`:''}`
   }));
   state.sel.set.clear(); $('c-set').textContent='';
@@ -631,9 +632,11 @@ async function loadCollection(){
 }
 
 // ---------- rows ----------
-const COLS = ['Name','Set','Set Code','Series','Number','Card ID','Variant','Variant Type','Owned','Quantity','Spares','Card Type','Rarity','Energy Type','Regulation Mark','Artist','TCGplayer Price','Cardmarket Price','eBay Price','CardTrader Price','Avg Price','Total Value','Set Release Date','Date Added','Image URL'];
+const COLS = ['Name','Set','Set Code','Series','Number','Card ID','Variant','Variant Type','Owned','Quantity','Spares','Card Type','Rarity','Energy Type','Regulation Mark','Artist','TCGplayer Price','Cardmarket Price','eBay Price','CardTrader Price','Avg Price','Total Value','Language','TCGplayer Product ID','TCGplayer Printing','Set Release Date','Date Added','Image URL'];
 const MONEY_COLS = new Set(['TCGplayer Price','Cardmarket Price','eBay Price','CardTrader Price','Avg Price','Total Value']);
 const r2 = n => n===''||n==null ? '' : Math.round(n*100)/100;
+const LANGUAGE = {international:'English', japan:'Japanese', china:'Chinese', korea:'Korean'};
+const PRINTING = {normal:'Normal', holo:'Holofoil', reverseHolo:'Reverse Holofoil'};
 const TYPE_NAME = {default:'Standard', master:'Master', additional:'Additional'};
 const isMaster = t => t==='default' || t==='master' || !t;
 
@@ -654,12 +657,13 @@ function keepVariant(sid, q, type, cardTotal){
   return q>0;
 }
 
-function buildRows(){
+function buildRows(stackOverride){
   const m = state.meta, sid = state.loadedState, cs = stateById(sid);
   const byId = arr => Object.fromEntries(arr.map(x=>[x.id,x.name]));
   const rarity = byId(m.rarity), energy = byId(m.energyType), reg = byId(m.regulationMark);
   const wantedVariants = new Set(m.variant.filter(v=>state.sel.variant.has(v.index)).map(v=>v.key));
-  const stack = $('stack').checked;
+  const stack = stackOverride ?? $('stack').checked;
+  const setInfo = new Map(m.set.map(s=>[s.index, s]));
   const rows = [];
   for(const x of state.entries){
     const c = x.card;
@@ -669,7 +673,18 @@ function buildRows(){
       'Name':c.name, 'Set':c.set?.name, 'Set Code':c.set?.setId, 'Series':c.set?.series?.name, 'Number':c.number, 'Card ID':c.cardId,
       'Card Type':c.supertype?.name||'', 'Rarity':rarity[c.rarityId]||'', 'Energy Type':energy[c.primaryEnergyTypeId]||'',
       'Regulation Mark':reg[c.regulationMarkId]||'', 'Artist':c.artist?.name||'',
-      'Set Release Date':(c.set?.releasedAt||'').slice(0,10), 'Date Added':(x.createdAt||'').slice(0,10), 'Image URL':c.imageUrl||''
+      'Set Release Date':(c.set?.releasedAt||'').slice(0,10), 'Date Added':(x.createdAt||'').slice(0,10), 'Image URL':c.imageUrl||'',
+      'Language':LANGUAGE[c.set?.series?.region?.regionId]||'',
+      _playId:setInfo.get(c.set?.id)?.playId||'', _setSize:setInfo.get(c.set?.id)?.mainSetCount||''
+    };
+    const defaultVariant = (c.variants||[]).find(v=>v.type==='default');
+    // TCGplayer product ID and printing come from the TCGplayer link Dex keeps for each variant.
+    const tcg = (v, key) => {
+      const mk = (c.markets||[]).find(mm=>mm.market?.marketId==='tcgPlayer' && mm.variantId===v?.variantId);
+      let id='', printing='';
+      if(mk?.url){ try{ const u = decodeURIComponent(mk.url); id = (u.match(/product\/(\d+)/)||[])[1]||''; printing = ((u.match(/[?&]Printing=([^&]+)/)||[])[1]||'').replace(/\+/g,' '); }catch(e){} }
+      if(id && !printing) printing = PRINTING[key] || PRINTING[defaultVariant?.variant?.variantId] || 'Normal';
+      return {'TCGplayer Product ID':id, 'TCGplayer Printing':id?printing:''};
     };
     const priceOf = vid => {
       const p = mk => { const f=(c.markets||[]).find(mm=>mm.market?.marketId===mk && mm.variantId===vid); return f&&f.price!=null?f.price:''; };
@@ -683,7 +698,7 @@ function buildRows(){
       if(cardTotal>0) continue;
       const v = (c.variants||[]).find(v=>v.type==='default') || (c.variants||[])[0];
       const pr = priceOf(v?.variantId);
-      rows.push({...base,'Variant':v?.variant?.name||'','Variant Type':TYPE_NAME[v?.type]||'','Owned':'No','Quantity':0,'Spares':0,
+      rows.push({...base,...tcg(v, v?.variant?.variantId),'Variant':v?.variant?.name||'','Variant Type':TYPE_NAME[v?.type]||'','Owned':'No','Quantity':0,'Spares':0,
         'TCGplayer Price':pr.tp,'Cardmarket Price':pr.cm,'eBay Price':pr.eb,'CardTrader Price':pr.ct,'Avg Price':r2(pr.avg),'Total Value':0});
       continue;
     }
@@ -699,18 +714,19 @@ function buildRows(){
       if(wantedVariants.size && !wantedVariants.has(key)) continue;
       if(!keepVariant(sid, q, v?.type, cardTotal)) continue;
       const pr = priceOf(v?.variantId);
-      variantRows.push({...base,'Variant':v?.variant?.name||key,'Variant Type':TYPE_NAME[v?.type]||'','Owned':q>0?'Yes':'No','Quantity':q,'Spares':Math.max(q-1,0),
+      variantRows.push({...base,...tcg(v, key),'Variant':v?.variant?.name||key,'Variant Type':TYPE_NAME[v?.type]||'','Owned':q>0?'Yes':'No','Quantity':q,'Spares':Math.max(q-1,0),
         'TCGplayer Price':pr.tp,'Cardmarket Price':pr.cm,'eBay Price':pr.eb,'CardTrader Price':pr.ct,'Avg Price':r2(pr.avg),'Total Value':pr.avg===''?'':r2(pr.avg*q)});
     }
     if(!variantRows.length) continue;
     if(stack){
       const q = variantRows.reduce((s,r)=>s+r.Quantity,0);
       rows.push({...base,'Variant':variantRows.map(r=>`${r.Variant} x${r.Quantity}`).join('; '),'Variant Type':'','Owned':q>0?'Yes':'No','Quantity':q,
-        'Spares':Math.max(cardTotal-1,0),'TCGplayer Price':'','Cardmarket Price':'','eBay Price':'','CardTrader Price':'','Avg Price':'',
+        'Spares':Math.max(cardTotal-1,0),'TCGplayer Price':'','Cardmarket Price':'','eBay Price':'','CardTrader Price':'','Avg Price':'','TCGplayer Product ID':'','TCGplayer Printing':'',
         'Total Value':r2(variantRows.reduce((s,r)=>s+(r['Total Value']||0),0))});
     } else rows.push(...variantRows);
   }
-  state.rows = rows;
+  if(stackOverride===undefined) state.rows = rows;
+  return rows;
 }
 
 function summary(){
@@ -788,6 +804,24 @@ $('json').onclick = ()=> download(fileBase()+'.json', new Blob([JSON.stringify(s
 $('copy').onclick = async ()=>{
   try{ await navigator.clipboard.writeText(toCSV()); flash('Copied. Paste it into Excel or Google Sheets.'); }
   catch(e){ flash('Your browser blocked copying. Use CSV or Excel instead.'); }
+};
+
+// Collectr imports TCGplayer's app export: these exact columns, matched on TCGplayer Product ID.
+$('collectr').onclick = ()=>{
+  const rows = buildRows(false).filter(r=>r.Quantity>0);
+  const ok = rows.filter(r=>r['TCGplayer Product ID']);
+  const skipped = rows.filter(r=>!r['TCGplayer Product ID']);
+  if(!ok.length){ flash('None of these cards have a TCGplayer product, so there is nothing Collectr can import.'); return; }
+  const H = ['Quantity','Name','Simple Name','Set','Card Number','Set Code','Printing','Condition','Language','Rarity','Product ID'];
+  const e = v => { v = v==null?'':String(v); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const lines = ok.map(r=>[
+    r.Quantity, r.Name, r.Name, r.Set,
+    r._setSize ? `${r.Number}/${r._setSize}` : r.Number,
+    r._playId || r['Set Code'], r['TCGplayer Printing'], 'Near Mint', r.Language||'English', r.Rarity, r['TCGplayer Product ID']
+  ].map(e).join(','));
+  download(fileBase()+'-collectr.csv', new Blob(['﻿'+[H.join(','),...lines].join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  const copies = ok.reduce((s,r)=>s+r.Quantity,0);
+  flash(`Collectr file downloaded: ${ok.length} rows, ${copies} cards.` + (skipped.length ? ` ${skipped.length} row${skipped.length>1?'s':''} left out because TCGplayer doesn't list ${skipped.length>1?'them':'it'} (their TCGplayer Product ID is blank in the Excel or CSV export).` : ''));
 };
 
 $('xlsx').onclick = async ()=>{
