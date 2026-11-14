@@ -1,6 +1,6 @@
 # Dex Collection Exporter
 
-Export your [Dex](https://dextcg.com) Pokémon TCG collection to **Excel, CSV, PDF or JSON**, from any device, or move it to **Collectr**.
+Export your [Dex](https://dextcg.com) Pokémon TCG collection to **Excel, CSV, PDF or JSON**, from any device, or move it to **Collectr** or **HoloDex**.
 
 Dex's built-in CSV export only exists in the iOS app (and needs Dex+). If you're on Android or a PC, this page gets your collection out anyway.
 
@@ -40,6 +40,16 @@ Select **Collectr** to download a CSV in the TCGplayer format that [Collectr imp
 - Only cards you own are included, using whatever filters you've loaded.
 - Product IDs come from the TCGplayer links Dex stores for each variant. Cards TCGplayer doesn't sell (most Chinese cards, some stamped or special variants) have no product ID, so they're left out; the page tells you how many.
 - Dex doesn't record condition, so every card is marked Near Mint.
+
+## Move your collection to HoloDex
+
+Select **HoloDex** to download a CSV for the HoloDex app's **Import cards** screen (Set name, Product name, Variant, Category, plus Quantity and Card number). Import it into an empty portfolio.
+
+- HoloDex matches on TCGplayer's card names without the card number, so the file removes accents (Poke Ball, Pokemon Catcher), writes Nidoran♀ as Nidoran F, and uses TCGplayer's names for a few odd cards (e.g. Bubbly W Energy).
+- Most sets use their plain name; 30th Celebration and Delta Reign use TCGplayer's set names, which is what HoloDex expects for those.
+- Only English cards are included.
+- Cards HoloDex doesn't list yet (McDonald's 2026, most Mega Evolution and Scarlet & Violet promos, stamped variants) show up as failed; add those with HoloDex's **Search manually**.
+- When several cards share a name in one set (like the 30th Celebration Pikachus), HoloDex may file them under a different card number, but the totals are right.
 
 ## What's in the export
 

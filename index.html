@@ -315,6 +315,7 @@
             <button id="json">JSON</button>
             <button id="copy">Copy</button>
             <button id="collectr" title="CSV in the TCGplayer format Collectr imports">Collectr</button>
+            <button id="holodex" title="CSV in the format the HoloDex app imports">HoloDex</button>
             <span id="copyMsg" class="copymsg" role="status"></span>
           </div>
         </div>
@@ -822,6 +823,66 @@ $('collectr').onclick = ()=>{
   download(fileBase()+'-collectr.csv', new Blob(['﻿'+[H.join(','),...lines].join('\r\n')],{type:'text/csv;charset=utf-8'}));
   const copies = ok.reduce((s,r)=>s+r.Quantity,0);
   flash(`Collectr file downloaded: ${ok.length} rows, ${copies} cards.` + (skipped.length ? ` ${skipped.length} row${skipped.length>1?'s':''} left out because TCGplayer doesn't list ${skipped.length>1?'them':'it'} (their TCGplayer Product ID is blank in the Excel or CSV export).` : ''));
+};
+
+// ---------- HoloDex ----------
+// HoloDex imports Set name, Product name and Variant (Category optional). It matches on TCGplayer's card names
+// with the card number removed, and on its own set names. These rules come from test imports into HoloDex (Nov 2026).
+
+// Sets where HoloDex wants TCGplayer's set name. Every other set uses Dex's plain name ("Pitch Black", "Perfect Order").
+const HOLODEX_SETS = {
+  '30th Celebration': 'ME: 30th Celebration',
+  '30th Celebration: Classic Collection': 'ME: 30th Celebration Classic Collection',
+  'Delta Reign': 'ME06: Delta Reign',
+};
+// Cards whose TCGplayer name differs from Dex's beyond accents and symbols. Keyed "Dex set|Dex name".
+const HOLODEX_NAMES = {
+  'Chaos Rising|Bubbly Water Energy': 'Bubbly W Energy',
+  'Chaos Rising|Nitro Fire Energy': 'Nitro R Energy',
+  '30th Celebration: Classic Collection|N': 'N (Supporter)',
+  '30th Celebration: Classic Collection|Genesect EX': 'Genesect EX (Team Plasma)',
+};
+// Cards that TCGplayer splits into differently named products, keyed "Dex set|Dex name|card number".
+const HOLODEX_NAMES_BY_NUMBER = {
+  'Delta Reign|Legendary Summit|96': 'Legendary Summit (Left)',
+  'Delta Reign|Legendary Summit|97': 'Legendary Summit (Right)',
+};
+const holodexName = r => {
+  const byNum = HOLODEX_NAMES_BY_NUMBER[`${r.Set}|${r.Name}|${parseInt(r.Number)}`];
+  if(byNum) return byNum;
+  const fixed = HOLODEX_NAMES[`${r.Set}|${r.Name}`];
+  if(fixed) return fixed;
+  return String(r.Name||'')
+    .replace(/♀/g,' F').replace(/♂/g,' M')
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')   // Poké Ball -> Poke Ball, Pokémon -> Pokemon
+    .replace(/\s+/g,' ').trim();
+};
+const HOLODEX_VARIANT = v => {
+  if(v['TCGplayer Printing']) return v['TCGplayer Printing'];
+  const n = String(v.Variant||'').toLowerCase();
+  if(n.includes('reverse')) return 'Reverse Holofoil';
+  if(n.includes('holo') || n.includes('foil')) return 'Holofoil';
+  return 'Normal';
+};
+$('holodex').onclick = ()=>{
+  const owned = buildRows(false).filter(r=>r.Quantity>0);
+  // HoloDex only takes English cards, and Dex's Japanese and Chinese sets can share an English set's name.
+  const rows = owned.filter(r=>!r.Language || r.Language==='English');
+  const skipped = owned.length - rows.length;
+  if(!rows.length){ flash('No owned English cards loaded, so there is nothing to send to HoloDex.'); return; }
+  // One row per set + name + printing + number: HoloDex adds quantities, and same-named cards stay apart by number.
+  const merged = new Map();
+  for(const r of rows){
+    const out = {set: HOLODEX_SETS[r.Set] || r.Set, name: holodexName(r), variant: HOLODEX_VARIANT(r), qty: r.Quantity, num: r.Number};
+    const k = [out.set,out.name,out.variant,out.num].join('|');
+    if(merged.has(k)) merged.get(k).qty += out.qty; else merged.set(k, out);
+  }
+  const H = ['Set name','Product name','Variant','Category','Quantity','Card number'];
+  const e = v => { v = v==null?'':String(v); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const lines = [...merged.values()].map(o=>[o.set, o.name, o.variant, 'Pokemon', o.qty, o.num].map(e).join(','));
+  download(fileBase()+'-holodex.csv', new Blob(['﻿'+[H.join(','),...lines].join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  const cards = [...merged.values()].reduce((s,o)=>s+o.qty,0);
+  flash(`HoloDex file downloaded: ${lines.length} rows, ${cards} cards.` + (skipped?` ${skipped} Japanese or Chinese row${skipped>1?'s were':' was'} left out.`:'') + ' Import it into an empty portfolio; promos HoloDex doesn\'t list will show as failed.');
 };
 
 $('xlsx').onclick = async ()=>{
